@@ -134,7 +134,19 @@ async function walk(entry, path, my){
   await Promise.all(es.map(e=>walk(e, path+entry.name+"/", my)));   // サブフォルダを並列に走査
 }
 
-const toFile = src => src instanceof File ? Promise.resolve(src) : new Promise((r,j)=>src.file(r,j));
+// File System Access API 版（名前の列挙のみで、ファイルを開かない）
+async function walkH(dir, path, my){
+  if(my!==gen) return;
+  stat.dirs++;
+  const p = path + dir.name + "/", subs = [];
+  for await(const c of dir.values()){
+    if(c.kind==="file"){ stat.files++; addName(c.name, p+c.name, c); } else subs.push(c);
+  }
+  await Promise.all(subs.map(s=>walkH(s, p, my)));
+}
+
+const toFile = src => src instanceof File ? Promise.resolve(src)
+  : src.getFile ? src.getFile() : new Promise((r,j)=>src.file(r,j));
 
 let active = 0, waiting = [];
 function limit(fn){ return new Promise(res=>{
@@ -159,8 +171,28 @@ async function handleDrop(items){
   const my=++gen; rows=[]; bad=[]; stat={dirs:0, files:0, t0:performance.now()};
   const timer=setInterval(()=>{ if(my!==gen) return clearInterval(timer);
     $("status").textContent=`読み込み中… フォルダ ${stat.dirs}・ファイル ${stat.files}（${((performance.now()-stat.t0)/1000).toFixed(1)}秒）`; },200);
-  const entries = [...items].map(i=>i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
-  try{ await Promise.all(entries.map(e=>walk(e, "", my))); } finally{ clearInterval(timer); }
+  // dropイベント中に同期的に取得しておく必要がある
+  const list = [...items];
+  const hps = list.map(i=>i.getAsFileSystemHandle ? i.getAsFileSystemHandle() : Promise.resolve(null));
+  const entries = list.map(i=>i.webkitGetAsEntry && i.webkitGetAsEntry());
+  try{
+    const hs = await Promise.all(hps.map(p=>p.catch(()=>null)));
+    await Promise.all(hs.map((h,i)=>{
+      if(h) return h.kind==="directory" ? walkH(h, "", my) : (stat.files++, addName(h.name, h.name, h));
+      if(entries[i]) return walk(entries[i], "", my);
+    }));
+  } finally{ clearInterval(timer); }
+  if(my===gen) afterList();
+}
+
+async function pickFolder(){
+  if(!window.showDirectoryPicker) return $("picker").click();
+  let dir;
+  try{ dir = await showDirectoryPicker(); }
+  catch(e){ if(e.name==="AbortError") return; return $("picker").click(); }   // ドライブ直下等で拒否されたときは従来方式へ
+  const my=++gen; rows=[]; bad=[]; stat={dirs:0, files:0, t0:performance.now()};
+  $("status").textContent="読み込み中…";
+  await walkH(dir, "", my);
   if(my===gen) afterList();
 }
 function handlePicker(files){
@@ -171,7 +203,7 @@ function handlePicker(files){
 }
 
 const drop = $("drop");
-drop.addEventListener("click", ()=>$("picker").click());
+drop.addEventListener("click", pickFolder);
 $("picker").addEventListener("change", e=>handlePicker(e.target.files));
 ["dragenter","dragover"].forEach(t=>drop.addEventListener(t,e=>{e.preventDefault();drop.classList.add("over")}));
 ["dragleave","drop"].forEach(t=>drop.addEventListener(t,e=>{e.preventDefault();drop.classList.remove("over")}));
