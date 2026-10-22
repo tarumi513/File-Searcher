@@ -109,8 +109,8 @@ for(const [id,list] of [["f-material",MATERIALS],["f-shade",SHADES]])
 
 // ===== 読み込み（2段階）=====
 // 1段階目: フォルダ内のファイル名だけを高速に列挙して即表示
-// 2段階目: 更新日時・サイズを並列取得（表示中の行を優先）して順次反映
-let rows = [], bad = [], sortKey = "modified", sortDir = -1, gen = 0;
+// 2段階目: 更新日時・サイズは必要な行だけ取得（表示中の行／更新日時順にしたときは絞り込み結果の全件）
+let rows = [], bad = [], sortKey = "due", sortDir = -1, gen = 0;
 
 function addName(name, relPath, src){
   if(!/\.stl$/i.test(name)) return;
@@ -142,25 +142,14 @@ function ensureMeta(r){
   if(r.p) return r.p;
   return r.p = limit(async()=>{ try{ const f=await toFile(r.src); r.modified=f.lastModified; r.size=f.size; }catch{ r.modified=0; r.size=0; } });
 }
-let tm=null, pending=0;
+let tm=null;
 function scheduleRender(){ if(tm) return; tm=setTimeout(()=>{ tm=null; render(); },300); }
 
-async function startMeta(my){
-  let done=0; const total=rows.length;
-  await Promise.all(rows.map(r=>ensureMeta(r).then(()=>{
-    if(my!==gen) return;
-    if(++done%50===0||done===total){ $("status").textContent = done<total
-      ? `⏳ 更新日時を取得中… ${done}/${total}`
-      : `✅ STL ${total} 件を読み込み完了（命名規則外 ${bad.length} 件）`; scheduleRender(); }
-  })));
-}
-
 function afterList(){
-  $("status").textContent = `STL ${rows.length} 件を検出（命名規則外 ${bad.length} 件）。更新日時を取得中…`;
+  $("status").textContent = `✅ STL ${rows.length} 件を検出（命名規則外 ${bad.length} 件）。ファイルの中身は読み込んでいません。`;
   $("bad").hidden = !bad.length; $("bad-n").textContent = bad.length;
   $("bad-list").textContent = bad.slice(0,100).join(" / ") + (bad.length>100?" …":"");
   render();
-  startMeta(gen);
 }
 
 async function handleDrop(items){
@@ -217,14 +206,17 @@ function render(){
     return (x<y?-1:x>y?1:0)*sortDir || a.name.localeCompare(b.name); });
   COLS.forEach(([k])=>$("s-"+k).textContent = k===sortKey ? (sortDir>0?" ▲":" ▼") : "");
   $("count").textContent = rows.length ? `${list.length} 件 / 全 ${rows.length} 件` : "";
-  const shown = list.slice(0,1000);
-  shown.forEach(r=>{ if(r.modified===null) ensureMeta(r).then(scheduleRender); });  // 表示中の行を優先取得
+  const shown = list.slice(0,300);
+  const need = (sortKey==="modified"||sortKey==="size") ? list : shown;   // 更新日時順のときだけ絞り込み結果の全件を取得
+  const todo = need.filter(r=>r.modified===null);
+  todo.forEach(r=>ensureMeta(r).then(scheduleRender));
+  if(todo.length) $("count").textContent += `（更新日時を取得中… 残り${todo.length}件）`;
   $("tbl").tBodies[0].innerHTML = shown.map((r,i)=>`<tr>
     <td>${r.due}</td><td><span class="tag">${r.material}</span></td><td>${r.shade}</td><td>${r.clinic}</td>
     <td>${r.serial}</td><td>${r.site}</td><td>${r.modified===null?"…":fmt(r.modified)}</td><td class="dir" title="${esc(r.dir)}">${esc(r.dir)||"-"}</td>
     <td>${esc(r.name)}</td><td>${r.size===null?"…":kb(r.size)}</td>
     <td><button data-a="copy" data-i="${i}">パスをコピー</button><button data-a="dl" data-i="${i}">DL</button></td></tr>`).join("");
-  if(list.length>1000) $("count").textContent += "（先頭1000件を表示。条件を絞ってください）";
+  if(list.length>300) $("count").textContent += "（先頭300件を表示。条件を絞ってください）";
   render.shown = shown;
 }
 $("tbl").tBodies[0].addEventListener("click", async e=>{
