@@ -57,6 +57,7 @@ td button{padding:3px 8px;font-size:12px;margin-right:4px}
       <label>歯科医院番号<input id="f-clinic" placeholder="例: 12345" inputmode="numeric"></label>
       <label>納期（から）<input id="f-from" type="date"></label>
       <label>納期（まで）<input id="f-to" type="date"></label>
+      <label>納期区分<select id="f-urgency"><option value="">すべて</option><option>W</option><option>WW</option><option>WR</option><option>WWR</option></select></label>
       <label>材料<select id="f-material"><option value="">すべて</option></select></label>
       <label>シェード<select id="f-shade"><option value="">すべて</option></select></label>
       <label>部位<input id="f-site" placeholder="例: 16 または 16-17"></label>
@@ -76,7 +77,8 @@ td button{padding:3px 8px;font-size:12px;margin-right:4px}
     <p class="note">
       ※ ブラウザの仕様上、NASのフルパスは取得できません。代わりに「フォルダ/ファイル名」をコピーできます。<br>
       ※ ファイルの<b>作成日時</b>はブラウザから取得できないため、<b>更新日時</b>と、所属する<b>製作日フォルダ</b>を表示します。<br>
-      ※ ファイル名の規則: 納期_材料_シェード_医院番号(5桁)_通し番号(3桁)_部位(例 14 / 16-17)
+      ※ ファイル名の規則: 材料-シェード-納期区分(w/ww/wr/wwr)-月日4桁-医院番号5桁-通し番号3桁-部位(例 15 / 16-17)-種類_cad<br>
+      ※ 納期は月日のみのため、年は今日に最も近い年として扱います。
     </p>
   </section>
   <section class="card" id="bad" hidden>
@@ -88,21 +90,37 @@ td button{padding:3px 8px;font-size:12px;margin-right:4px}
 <script>
 const $ = id => document.getElementById(id);
 
-// ===== ファイル名解析（命名規則が変わったらここを修正）=====
-const MATERIALS = ["PR","CS3","DK","DHK"];
+// 例: dk-a4-w-1026-01478-011-15-inlay_cad.stl
+//   材料-シェード-納期区分(w/ww/wr/wwr)-月日(MMDD)-医院番号(5桁)-通し番号(3桁)-部位(ハイフンで複数可)-種類_cad
+// 大文字小文字は区別しない。材料は英数字なら何でも読める（プルダウンは下のリスト）
+const MATERIALS = ["PR","CS3","DK","DHK","GL"];
 const SHADES = ["A1","A2","A3","A3.5","A4"];
 const SEP = "[_\\-\\s]";
-// シェードは A3.5 を A3 より先に判定する
 const PATTERN = new RegExp(
-  `^(\\d{8})${SEP}(${MATERIALS.join("|")})${SEP}(A3\\.5|A[1-4])${SEP}(\\d{5})${SEP}(\\d{3})${SEP}(\\d{2}(?:-\\d{2})*)(?:${SEP}.*)?$`, "i");
+  `^([A-Za-z][A-Za-z0-9]*)${SEP}([A-Za-z]\\d(?:\\.\\d)?)${SEP}(w{1,2}r?)${SEP}(\\d{4})${SEP}(\\d{5})${SEP}(\\d{3})${SEP}(\\d{2}(?:-\\d{2})*)(?:${SEP}([A-Za-z]*).*)?$`, "i");
+
+// MMDD → 今日に最も近い年の日付を推定（例: 10月にとって 0105 は来年、1105 は今年）
+function inferDate(mmdd){
+  const mo=+mmdd.slice(0,2), dd=+mmdd.slice(2), now=new Date(), y=now.getFullYear();
+  let best=null;
+  for(const yy of [y-1,y,y+1]){
+    const dt=new Date(yy,mo-1,dd);
+    if(dt.getMonth()!==mo-1 || dt.getDate()!==dd) continue;
+    if(!best || Math.abs(dt-now)<Math.abs(best-now)) best=dt;
+  }
+  if(!best) return null;
+  const p=n=>String(n).padStart(2,"0");
+  return `${best.getFullYear()}-${p(mo)}-${p(dd)}`;
+}
 
 function parseName(name){
   const m = PATTERN.exec(name.slice(0,-4));
   if(!m) return null;
-  const d = m[1], y=+d.slice(0,4), mo=+d.slice(4,6), dd=+d.slice(6,8), dt=new Date(y,mo-1,dd);
-  if(dt.getMonth()!==mo-1 || dt.getDate()!==dd) return null;
-  return {due:`${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`, material:m[2].toUpperCase(),
-          shade:m[3].toUpperCase(), clinic:m[4], serial:m[5], site:m[6], sites:m[6].split("-")};
+  const due = inferDate(m[4]);
+  if(!due) return null;
+  return {material:m[1].toUpperCase(), shade:m[2].toUpperCase(), urgency:m[3].toUpperCase(), due,
+          md:`${m[4].slice(0,2)}/${m[4].slice(2)}`, clinic:m[5], serial:m[6], site:m[7], sites:m[7].split("-"),
+          kind:(m[8]||"").toLowerCase()};
 }
 
 // プルダウンは固定リスト
@@ -215,8 +233,8 @@ window.addEventListener("dragover",e=>e.preventDefault());
 window.addEventListener("drop",e=>{e.preventDefault(); if(!drop.contains(e.target)) handleDrop(e.dataTransfer.items);});
 
 // ===== 検索・表示 =====
-const COLS = [["due","納期"],["material","材料"],["shade","シェード"],["clinic","医院番号"],["serial","通し番号"],
-  ["site","部位"],["modified","更新日時"],["dir","製作日フォルダ"],["name","ファイル名"],["size","サイズ"]];
+const COLS = [["due","納期"],["urgency","区分"],["material","材料"],["shade","シェード"],["clinic","医院番号"],["serial","通し番号"],
+  ["site","部位"],["kind","種類"],["modified","更新日時"],["dir","製作日フォルダ"],["name","ファイル名"],["size","サイズ"]];
 $("tbl").tHead.innerHTML = "<tr>"+COLS.map(([k,l])=>`<th data-k="${k}">${l}<span id="s-${k}"></span></th>`).join("")+"<th>操作</th></tr>";
 $("tbl").tHead.addEventListener("click", e=>{
   const k = e.target.closest("th")?.dataset.k; if(!k) return;
@@ -229,17 +247,18 @@ const kb = n => n>=1048576 ? (n/1048576).toFixed(1)+" MB" : Math.max(1,Math.roun
 const esc = s => s.replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 // 検索ボタンを押した時点の条件を保持（入力中は結果を変えない）
-const FIELDS = ["f-clinic","f-from","f-to","f-material","f-shade","f-site","f-serial","f-text"];
+const FIELDS = ["f-clinic","f-from","f-to","f-urgency","f-material","f-shade","f-site","f-serial","f-text"];
 let F = {};
 const applyFilter = () => { F = Object.fromEntries(FIELDS.map(id=>[id, $(id).value.trim()])); render(); };
 
 function filtered(){
   const v = id => F[id] || "";
   const clinic=v("f-clinic"), from=v("f-from"), to=v("f-to"), mat=v("f-material"), sh=v("f-shade"),
-        serial=v("f-serial"), text=v("f-text").toLowerCase(),
+        urg=v("f-urgency"), serial=v("f-serial"), text=v("f-text").toLowerCase(),
         site=v("f-site").split(/[\s,\-，、]+/).filter(Boolean);
   return rows.filter(r=>
     (!clinic || r.clinic.includes(clinic)) && (!from || r.due>=from) && (!to || r.due<=to) &&
+    (!urg || r.urgency===urg) &&
     (!mat || r.material===mat) && (!sh || r.shade===sh) && (!serial || r.serial.includes(serial)) &&
     (!text || r.name.toLowerCase().includes(text)) &&
     site.every(s=>r.sites.includes(s.padStart(2,"0"))));
@@ -256,8 +275,8 @@ function render(){
   todo.forEach(r=>ensureMeta(r).then(scheduleRender));
   if(todo.length) $("count").textContent += `（更新日時を取得中… 残り${todo.length}件）`;
   $("tbl").tBodies[0].innerHTML = shown.map((r,i)=>`<tr>
-    <td>${r.due}</td><td><span class="tag">${r.material}</span></td><td>${r.shade}</td><td>${r.clinic}</td>
-    <td>${r.serial}</td><td>${r.site}</td><td>${r.modified===null?"…":fmt(r.modified)}</td><td class="dir" title="${esc(r.dir)}">${esc(r.dir)||"-"}</td>
+    <td title="${r.due}">${r.md}</td><td>${r.urgency}</td><td><span class="tag">${r.material}</span></td><td>${r.shade}</td><td>${r.clinic}</td>
+    <td>${r.serial}</td><td>${r.site}</td><td>${esc(r.kind)}</td><td>${r.modified===null?"…":fmt(r.modified)}</td><td class="dir" title="${esc(r.dir)}">${esc(r.dir)||"-"}</td>
     <td>${esc(r.name)}</td><td>${r.size===null?"…":kb(r.size)}</td>
     <td><button data-a="copy" data-i="${i}">パスをコピー</button><button data-a="dl" data-i="${i}">DL</button></td></tr>`).join("");
   if(list.length>300) $("count").textContent += "（先頭300件を表示。条件を絞ってください）";
