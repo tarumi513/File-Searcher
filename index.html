@@ -124,10 +124,12 @@ function readAll(reader){
     const all=[]; (function next(){ reader.readEntries(es=>{ if(!es.length) return res(all); all.push(...es); next(); }, rej); })();
   });
 }
+let stat = {dirs:0, files:0, t0:0};
 async function walk(entry, path, my){
   if(my!==gen) return;
-  if(entry.isFile) return addName(entry.name, path+entry.name, entry);
+  if(entry.isFile){ stat.files++; return addName(entry.name, path+entry.name, entry); }
   if(!entry.isDirectory) return;
+  stat.dirs++;
   const es = await readAll(entry.createReader());
   await Promise.all(es.map(e=>walk(e, path+entry.name+"/", my)));   // サブフォルダを並列に走査
 }
@@ -146,20 +148,23 @@ let tm=null;
 function scheduleRender(){ if(tm) return; tm=setTimeout(()=>{ tm=null; render(); },300); }
 
 function afterList(){
-  $("status").textContent = `✅ STL ${rows.length} 件を検出（命名規則外 ${bad.length} 件）。ファイルの中身は読み込んでいません。`;
+  const sec = ((performance.now()-stat.t0)/1000).toFixed(1);
+  $("status").textContent = `✅ STL ${rows.length} 件を検出（命名規則外 ${bad.length} 件）。走査: フォルダ ${stat.dirs}・ファイル ${stat.files}・${sec}秒。中身は読み込んでいません。`;
   $("bad").hidden = !bad.length; $("bad-n").textContent = bad.length;
   $("bad-list").textContent = bad.slice(0,100).join(" / ") + (bad.length>100?" …":"");
   render();
 }
 
 async function handleDrop(items){
-  const my=++gen; rows=[]; bad=[]; $("status").textContent="フォルダを読み込み中…";
+  const my=++gen; rows=[]; bad=[]; stat={dirs:0, files:0, t0:performance.now()};
+  const timer=setInterval(()=>{ if(my!==gen) return clearInterval(timer);
+    $("status").textContent=`読み込み中… フォルダ ${stat.dirs}・ファイル ${stat.files}（${((performance.now()-stat.t0)/1000).toFixed(1)}秒）`; },200);
   const entries = [...items].map(i=>i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
-  await Promise.all(entries.map(e=>walk(e, "", my)));
+  try{ await Promise.all(entries.map(e=>walk(e, "", my))); } finally{ clearInterval(timer); }
   if(my===gen) afterList();
 }
 function handlePicker(files){
-  ++gen; rows=[]; bad=[];
+  ++gen; rows=[]; bad=[]; stat={dirs:0, files:files.length, t0:performance.now()};
   for(const f of files){ const p=f.webkitRelativePath||f.name; addName(f.name, p, f); }
   rows.forEach(r=>{ r.modified=r.src.lastModified; r.size=r.src.size; r.p=Promise.resolve(); });
   afterList();
