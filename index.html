@@ -84,69 +84,96 @@ td button{padding:3px 8px;font-size:12px;margin-right:4px}
 </main>
 
 <script>
-// ===== ファイル名解析（命名規則が変わったらここを修正）=====
-const SEP = "[_\\-\\s.]";
-const PATTERN = new RegExp(
-  `^(\\d{8})${SEP}([A-Za-z]+)${SEP}([A-Za-z0-9]+)${SEP}(\\d{5})${SEP}(\\d{3})${SEP}(\\d{2}(?:-\\d{2})*)(?:${SEP}.*)?$`, "i");
-
-function parseName(name){
-  const m = PATTERN.exec(name.replace(/\.stl$/i, ""));
-  if(!m) return null;
-  const y=+m[1].slice(0,4), mo=+m[1].slice(4,6), d=+m[1].slice(6,8);
-  const dt = new Date(y,mo-1,d);
-  if(dt.getMonth()!==mo-1 || dt.getDate()!==d) return null;
-  return {due:`${m[1].slice(0,4)}-${m[1].slice(4,6)}-${m[1].slice(6,8)}`, material:m[2].toUpperCase(),
-          shade:m[3].toUpperCase(), clinic:m[4], serial:m[5], site:m[6]};
-}
-
-// ===== 読み込み =====
-let rows = [], bad = [], sortKey = "modified", sortDir = -1;
 const $ = id => document.getElementById(id);
 
-function addFile(file, relPath){
-  if(!/\.stl$/i.test(file.name)) return;
-  const meta = parseName(file.name);
-  const dir = relPath.split("/").slice(0,-1).join("/");
-  if(!meta){ bad.push(relPath); return; }
-  rows.push({...meta, file, name:file.name, rel:relPath, dir, modified:file.lastModified, size:file.size});
+// ===== ファイル名解析（命名規則が変わったらここを修正）=====
+const MATERIALS = ["PR","CS3","DK","DHK"];
+const SHADES = ["A1","A2","A3","A3.5","A4"];
+const SEP = "[_\\-\\s]";
+// シェードは A3.5 を A3 より先に判定する
+const PATTERN = new RegExp(
+  `^(\\d{8})${SEP}(${MATERIALS.join("|")})${SEP}(A3\\.5|A[1-4])${SEP}(\\d{5})${SEP}(\\d{3})${SEP}(\\d{2}(?:-\\d{2})*)(?:${SEP}.*)?$`, "i");
+
+function parseName(name){
+  const m = PATTERN.exec(name.slice(0,-4));
+  if(!m) return null;
+  const d = m[1], y=+d.slice(0,4), mo=+d.slice(4,6), dd=+d.slice(6,8), dt=new Date(y,mo-1,dd);
+  if(dt.getMonth()!==mo-1 || dt.getDate()!==dd) return null;
+  return {due:`${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`, material:m[2].toUpperCase(),
+          shade:m[3].toUpperCase(), clinic:m[4], serial:m[5], site:m[6], sites:m[6].split("-")};
 }
 
-function readEntries(reader){
+// プルダウンは固定リスト
+for(const [id,list] of [["f-material",MATERIALS],["f-shade",SHADES]])
+  $(id).insertAdjacentHTML("beforeend", list.map(v=>`<option>${v}</option>`).join(""));
+
+// ===== 読み込み（2段階）=====
+// 1段階目: フォルダ内のファイル名だけを高速に列挙して即表示
+// 2段階目: 更新日時・サイズを並列取得（表示中の行を優先）して順次反映
+let rows = [], bad = [], sortKey = "modified", sortDir = -1, gen = 0;
+
+function addName(name, relPath, src){
+  if(!/\.stl$/i.test(name)) return;
+  const meta = parseName(name);
+  if(!meta){ bad.push(relPath); return; }
+  rows.push({...meta, src, name, rel:relPath, dir:relPath.slice(0, relPath.length-name.length-1), modified:null, size:null});
+}
+
+function readAll(reader){
   return new Promise((res,rej)=>{
     const all=[]; (function next(){ reader.readEntries(es=>{ if(!es.length) return res(all); all.push(...es); next(); }, rej); })();
   });
 }
-async function walk(entry, path){
-  if(entry.isFile){
-    const file = await new Promise((r,j)=>entry.file(r,j));
-    addFile(file, path + entry.name);
-  } else if(entry.isDirectory){
-    const es = await readEntries(entry.createReader());
-    for(const e of es) await walk(e, path + entry.name + "/");
-  }
+async function walk(entry, path, my){
+  if(my!==gen) return;
+  if(entry.isFile) return addName(entry.name, path+entry.name, entry);
+  if(!entry.isDirectory) return;
+  const es = await readAll(entry.createReader());
+  await Promise.all(es.map(e=>walk(e, path+entry.name+"/", my)));   // サブフォルダを並列に走査
 }
 
-async function finish(){
-  $("status").textContent = `✅ STL ${rows.length} 件を読み込み（命名規則外 ${bad.length} 件）`;
-  const fill = (id,key)=>{ const s=$(id), cur=s.value;
-    s.innerHTML='<option value="">すべて</option>'+[...new Set(rows.map(r=>r[key]))].sort().map(v=>`<option>${v}</option>`).join("");
-    s.value=cur; };
-  fill("f-material","material"); fill("f-shade","shade");
+const toFile = src => src instanceof File ? Promise.resolve(src) : new Promise((r,j)=>src.file(r,j));
+
+let active = 0, waiting = [];
+function limit(fn){ return new Promise(res=>{
+  const run = ()=>{ active++; fn().finally(()=>{ active--; if(waiting.length) waiting.shift()(); }).then(res); };
+  active<48 ? run() : waiting.push(run); }); }
+function ensureMeta(r){
+  if(r.p) return r.p;
+  return r.p = limit(async()=>{ try{ const f=await toFile(r.src); r.modified=f.lastModified; r.size=f.size; }catch{ r.modified=0; r.size=0; } });
+}
+let tm=null, pending=0;
+function scheduleRender(){ if(tm) return; tm=setTimeout(()=>{ tm=null; render(); },300); }
+
+async function startMeta(my){
+  let done=0; const total=rows.length;
+  await Promise.all(rows.map(r=>ensureMeta(r).then(()=>{
+    if(my!==gen) return;
+    if(++done%50===0||done===total){ $("status").textContent = done<total
+      ? `⏳ 更新日時を取得中… ${done}/${total}`
+      : `✅ STL ${total} 件を読み込み完了（命名規則外 ${bad.length} 件）`; scheduleRender(); }
+  })));
+}
+
+function afterList(){
+  $("status").textContent = `STL ${rows.length} 件を検出（命名規則外 ${bad.length} 件）。更新日時を取得中…`;
   $("bad").hidden = !bad.length; $("bad-n").textContent = bad.length;
   $("bad-list").textContent = bad.slice(0,100).join(" / ") + (bad.length>100?" …":"");
   render();
+  startMeta(gen);
 }
 
 async function handleDrop(items){
-  rows=[]; bad=[]; $("status").textContent="読み込み中…";
+  const my=++gen; rows=[]; bad=[]; $("status").textContent="フォルダを読み込み中…";
   const entries = [...items].map(i=>i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
-  for(const e of entries) await walk(e, "");
-  finish();
+  await Promise.all(entries.map(e=>walk(e, "", my)));
+  if(my===gen) afterList();
 }
 function handlePicker(files){
-  rows=[]; bad=[];
-  for(const f of files) addFile(f, f.webkitRelativePath || f.name);
-  finish();
+  ++gen; rows=[]; bad=[];
+  for(const f of files){ const p=f.webkitRelativePath||f.name; addName(f.name, p, f); }
+  rows.forEach(r=>{ r.modified=r.src.lastModified; r.size=r.src.size; r.p=Promise.resolve(); });
+  afterList();
 }
 
 const drop = $("drop");
@@ -182,19 +209,20 @@ function filtered(){
     (!clinic || r.clinic.includes(clinic)) && (!from || r.due>=from) && (!to || r.due<=to) &&
     (!mat || r.material===mat) && (!sh || r.shade===sh) && (!serial || r.serial.includes(serial)) &&
     (!text || r.name.toLowerCase().includes(text)) &&
-    site.every(s=>r.site.split("-").includes(s.padStart(2,"0"))));
+    site.every(s=>r.sites.includes(s.padStart(2,"0"))));
 }
 
 function render(){
-  const list = filtered().sort((a,b)=>{ const x=a[sortKey], y=b[sortKey];
+  const list = filtered().sort((a,b)=>{ const x=a[sortKey]??0, y=b[sortKey]??0;
     return (x<y?-1:x>y?1:0)*sortDir || a.name.localeCompare(b.name); });
   COLS.forEach(([k])=>$("s-"+k).textContent = k===sortKey ? (sortDir>0?" ▲":" ▼") : "");
   $("count").textContent = rows.length ? `${list.length} 件 / 全 ${rows.length} 件` : "";
   const shown = list.slice(0,1000);
+  shown.forEach(r=>{ if(r.modified===null) ensureMeta(r).then(scheduleRender); });  // 表示中の行を優先取得
   $("tbl").tBodies[0].innerHTML = shown.map((r,i)=>`<tr>
     <td>${r.due}</td><td><span class="tag">${r.material}</span></td><td>${r.shade}</td><td>${r.clinic}</td>
-    <td>${r.serial}</td><td>${r.site}</td><td>${fmt(r.modified)}</td><td class="dir" title="${esc(r.dir)}">${esc(r.dir)||"-"}</td>
-    <td>${esc(r.name)}</td><td>${kb(r.size)}</td>
+    <td>${r.serial}</td><td>${r.site}</td><td>${r.modified===null?"…":fmt(r.modified)}</td><td class="dir" title="${esc(r.dir)}">${esc(r.dir)||"-"}</td>
+    <td>${esc(r.name)}</td><td>${r.size===null?"…":kb(r.size)}</td>
     <td><button data-a="copy" data-i="${i}">パスをコピー</button><button data-a="dl" data-i="${i}">DL</button></td></tr>`).join("");
   if(list.length>1000) $("count").textContent += "（先頭1000件を表示。条件を絞ってください）";
   render.shown = shown;
@@ -206,7 +234,8 @@ $("tbl").tBodies[0].addEventListener("click", async e=>{
     try{ await navigator.clipboard.writeText(r.rel); }catch{ prompt("コピーしてください", r.rel); }
     b.textContent="✔ コピー済"; setTimeout(()=>b.textContent="パスをコピー",1200);
   } else {
-    const a=document.createElement("a"); a.href=URL.createObjectURL(r.file); a.download=r.name; a.click();
+    const f=await toFile(r.src);
+    const a=document.createElement("a"); a.href=URL.createObjectURL(f); a.download=r.name; a.click();
     setTimeout(()=>URL.revokeObjectURL(a.href),5000);
   }
 });
