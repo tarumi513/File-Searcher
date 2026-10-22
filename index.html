@@ -64,7 +64,9 @@ td button{padding:3px 8px;font-size:12px;margin-right:4px}
       <label>ファイル名に含む<input id="f-text" placeholder="自由入力"></label>
     </div>
     <div class="row">
+      <button id="search" class="btn">🔍 検索</button>
       <button id="reset">条件クリア</button>
+      <span class="note">入力した項目だけで絞り込み（未入力の項目は無視・複数ヒット可）</span>
       <span class="count" id="count"></span>
     </div>
   </section>
@@ -226,8 +228,13 @@ const fmt = t => { const d=new Date(t), p=n=>String(n).padStart(2,"0");
 const kb = n => n>=1048576 ? (n/1048576).toFixed(1)+" MB" : Math.max(1,Math.round(n/1024))+" KB";
 const esc = s => s.replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
+// 検索ボタンを押した時点の条件を保持（入力中は結果を変えない）
+const FIELDS = ["f-clinic","f-from","f-to","f-material","f-shade","f-site","f-serial","f-text"];
+let F = {};
+const applyFilter = () => { F = Object.fromEntries(FIELDS.map(id=>[id, $(id).value.trim()])); render(); };
+
 function filtered(){
-  const v = id => $(id).value.trim();
+  const v = id => F[id] || "";
   const clinic=v("f-clinic"), from=v("f-from"), to=v("f-to"), mat=v("f-material"), sh=v("f-shade"),
         serial=v("f-serial"), text=v("f-text").toLowerCase(),
         site=v("f-site").split(/[\s,\-，、]+/).filter(Boolean);
@@ -269,9 +276,9 @@ $("tbl").tBodies[0].addEventListener("click", async e=>{
   }
 });
 
-document.querySelectorAll("#f-clinic,#f-from,#f-to,#f-material,#f-shade,#f-site,#f-serial,#f-text")
-  .forEach(el=>el.addEventListener("input", render));
-$("reset").onclick = ()=>{ document.querySelectorAll(".grid input,.grid select").forEach(el=>el.value=""); render(); };
+$("search").onclick = applyFilter;
+FIELDS.forEach(id=>$(id).addEventListener("keydown", e=>{ if(e.key==="Enter") applyFilter(); }));
+$("reset").onclick = ()=>{ FIELDS.forEach(id=>$(id).value=""); applyFilter(); };
 render();
 </script>
 </body>
