@@ -79,10 +79,6 @@ td button{padding:3px 8px;font-size:12px;margin-right:4px}
       ※ 納期は月日のみのため、年は今日に最も近い年として扱います。
     </p>
   </section>
-  <section class="card" id="bad" hidden>
-    <b>命名規則に合わないSTL: <span id="bad-n"></span> 件</b>
-    <div class="note" id="bad-list"></div>
-  </section>
 </main>
 
 <script>
@@ -128,12 +124,12 @@ for(const [id,list] of [["f-material",MATERIALS],["f-shade",SHADES]])
 // ===== 読み込み（2段階）=====
 // 1段階目: フォルダ内のファイル名だけを高速に列挙して即表示
 // 2段階目: 更新日時・サイズは必要な行だけ取得（表示中の行／更新日時順にしたときは絞り込み結果の全件）
-let rows = [], bad = [], sortKey = "due", sortDir = -1, gen = 0;
+let rows = [], sortKey = "due", sortDir = -1, gen = 0;
 
 function addName(name, relPath, src){
   if(!/\.stl$/i.test(name)) return;
   const meta = parseName(name);
-  if(!meta){ bad.push(relPath); return; }
+  if(!meta) return;   // 命名規則に合わないファイルは無視
   rows.push({...meta, src, name, rel:relPath, dir:relPath.slice(0, relPath.length-name.length-1), modified:null, size:null});
 }
 
@@ -179,14 +175,12 @@ function scheduleRender(){ if(tm) return; tm=setTimeout(()=>{ tm=null; render();
 
 function afterList(){
   const sec = ((performance.now()-stat.t0)/1000).toFixed(1);
-  $("status").textContent = `✅ STL ${rows.length} 件を検出（命名規則外 ${bad.length} 件）。走査: フォルダ ${stat.dirs}・ファイル ${stat.files}・${sec}秒。中身は読み込んでいません。`;
-  $("bad").hidden = !bad.length; $("bad-n").textContent = bad.length;
-  $("bad-list").textContent = bad.slice(0,100).join(" / ") + (bad.length>100?" …":"");
+  $("status").textContent = `✅ STL ${rows.length} 件を検出。走査: フォルダ ${stat.dirs}・ファイル ${stat.files}・${sec}秒。中身は読み込んでいません。`;
   render();
 }
 
 async function handleDrop(items){
-  const my=++gen; rows=[]; bad=[]; stat={dirs:0, files:0, t0:performance.now()};
+  const my=++gen; rows=[]; stat={dirs:0, files:0, t0:performance.now()};
   const timer=setInterval(()=>{ if(my!==gen) return clearInterval(timer);
     $("status").textContent=`読み込み中… フォルダ ${stat.dirs}・ファイル ${stat.files}（${((performance.now()-stat.t0)/1000).toFixed(1)}秒）`; },200);
   // dropイベント中に同期的に取得しておく必要がある
@@ -208,13 +202,13 @@ async function pickFolder(){
   let dir;
   try{ dir = await showDirectoryPicker(); }
   catch(e){ if(e.name==="AbortError") return; return $("picker").click(); }   // ドライブ直下等で拒否されたときは従来方式へ
-  const my=++gen; rows=[]; bad=[]; stat={dirs:0, files:0, t0:performance.now()};
+  const my=++gen; rows=[]; stat={dirs:0, files:0, t0:performance.now()};
   $("status").textContent="読み込み中…";
   await walkH(dir, "", my);
   if(my===gen) afterList();
 }
 function handlePicker(files){
-  ++gen; rows=[]; bad=[]; stat={dirs:0, files:files.length, t0:performance.now()};
+  ++gen; rows=[]; stat={dirs:0, files:files.length, t0:performance.now()};
   for(const f of files){ const p=f.webkitRelativePath||f.name; addName(f.name, p, f); }
   rows.forEach(r=>{ r.modified=r.src.lastModified; r.size=r.src.size; r.p=Promise.resolve(); });
   afterList();
