@@ -54,15 +54,13 @@ td button{padding:3px 8px;font-size:12px;margin-right:4px}
 
   <section class="card">
     <div class="grid">
-      <label>歯科医院番号<input id="f-clinic" placeholder="例: 12345" inputmode="numeric"></label>
-      <label>納期（から）<input id="f-from" type="date"></label>
-      <label>納期（まで）<input id="f-to" type="date"></label>
-      <label>納期区分<select id="f-urgency"><option value="">すべて</option><option>W</option><option>WW</option><option>WR</option><option>WWR</option></select></label>
+      <label>納期<input id="f-from" type="date"></label>
       <label>材料<select id="f-material"><option value="">すべて</option></select></label>
-      <label>シェード<select id="f-shade"><option value="">すべて</option></select></label>
-      <label>部位<input id="f-site" placeholder="例: 16 または 16-17"></label>
+      <label>色<select id="f-shade"><option value="">すべて</option></select></label>
+      <label>歯科医院番号<input id="f-clinic" placeholder="例: 12345" inputmode="numeric"></label>
       <label>通し番号<input id="f-serial" placeholder="例: 001"></label>
-      <label>ファイル名に含む<input id="f-text" placeholder="自由入力"></label>
+      <label>部位<input id="f-site" placeholder="例: 16 または 16-17"></label>
+      <label>納期区分<select id="f-urgency"><option value="">すべて</option><option>W</option><option>WW</option><option>WR</option><option>WWR</option></select></label>
     </div>
     <div class="row">
       <button id="search" class="btn">🔍 検索</button>
@@ -247,20 +245,19 @@ const kb = n => n>=1048576 ? (n/1048576).toFixed(1)+" MB" : Math.max(1,Math.roun
 const esc = s => s.replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 // 検索ボタンを押した時点の条件を保持（入力中は結果を変えない）
-const FIELDS = ["f-clinic","f-from","f-to","f-urgency","f-material","f-shade","f-site","f-serial","f-text"];
+const FIELDS = ["f-from","f-material","f-shade","f-clinic","f-serial","f-site","f-urgency"];
 let F = {};
 const applyFilter = () => { F = Object.fromEntries(FIELDS.map(id=>[id, $(id).value.trim()])); render(); };
 
 function filtered(){
   const v = id => F[id] || "";
-  const clinic=v("f-clinic"), from=v("f-from"), to=v("f-to"), mat=v("f-material"), sh=v("f-shade"),
-        urg=v("f-urgency"), serial=v("f-serial"), text=v("f-text").toLowerCase(),
+  const clinic=v("f-clinic"), due=v("f-from").slice(5).replace("-","/"), mat=v("f-material"), sh=v("f-shade"),
+        urg=v("f-urgency"), serial=v("f-serial"),
         site=v("f-site").split(/[\s,\-，、]+/).filter(Boolean);
   return rows.filter(r=>
-    (!clinic || r.clinic.includes(clinic)) && (!from || r.due>=from) && (!to || r.due<=to) &&
+    (!clinic || r.clinic.includes(clinic)) && (!due || r.md===due) &&
     (!urg || r.urgency===urg) &&
     (!mat || r.material===mat) && (!sh || r.shade===sh) && (!serial || r.serial.includes(serial)) &&
-    (!text || r.name.toLowerCase().includes(text)) &&
     site.every(s=>r.sites.includes(s.padStart(2,"0"))));
 }
 
