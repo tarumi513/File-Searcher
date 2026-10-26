@@ -30,14 +30,29 @@ def load(paths: tuple):
 
 
 with st.sidebar:
-    root = st.text_input("NASのベースフォルダ", DEFAULT_ROOT)
+    import_option = st.radio("フォルダー取得方法", ["ZIP アップロード", "ローカルフォルダー"])
+    if import_option == "ZIP アップロード":
+        uploaded = st.file_uploader("検出対象フォルダー（ZIP）をドロップしてください", type=["zip"])
+        if uploaded:
+            import tempfile, zipfile, shutil
+            tmp_dir = tempfile.mkdtemp()
+            with zipfile.ZipFile(uploaded) as z:
+                z.extractall(tmp_dir)
+            root = tmp_dir
+        else:
+            st.info("ZIP ファイルをアップロードしてください。")
+            st.stop()
+    else:
+        folder_path = st.text_input("ローカルフォルダーのパス（フルパス）", "")
+        if folder_path and os.path.isdir(folder_path):
+            root = folder_path
+        else:
+            st.info("有効なフォルダーを入力してください。")
+            st.stop()
     if st.button("🔄 再スキャン"):
         folders.clear()
         load.clear()
 
-if not os.path.isdir(root):
-    st.error(f"フォルダにアクセスできません: {root}")
-    st.stop()
 
 fmap = folders(root)
 if not fmap:
