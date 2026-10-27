@@ -1,295 +1,219 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>STLデータ検索</title>
-<meta name="description" content="NASのSTLデータをフォルダ指定で検索。サーバー不要、ブラウザだけで動作します。">
-<style>
-:root{--bg:#0e1424;--card:#171f36;--line:#2a3558;--txt:#e8ecf8;--sub:#8e9bc4;--ac:#5eead4;--ac2:#818cf8}
-*{box-sizing:border-box}
-body{margin:0;font-family:"Segoe UI","Yu Gothic UI",Meiryo,sans-serif;background:radial-gradient(1200px 600px at 10% -10%,#1d2a55 0,transparent 60%),var(--bg);color:var(--txt);min-height:100vh}
-header{padding:24px 32px 8px}
-h1{margin:0;font-size:24px;background:linear-gradient(90deg,var(--ac),var(--ac2));-webkit-background-clip:text;color:transparent}
-header p{margin:4px 0 0;color:var(--sub);font-size:13px}
-main{padding:16px 32px 40px;display:grid;gap:16px}
-.card{background:rgba(23,31,54,.8);backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:16px;padding:18px}
-#drop{border:2px dashed var(--line);text-align:center;padding:32px;transition:.2s;cursor:pointer}
-#drop.over{border-color:var(--ac);background:rgba(94,234,212,.08);transform:scale(1.01)}
-#drop b{font-size:18px}#drop small{display:block;margin-top:6px;color:var(--sub)}
-#status{margin-top:10px;color:var(--ac);font-size:13px;min-height:18px}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
-label{font-size:12px;color:var(--sub);display:flex;flex-direction:column;gap:4px}
-input,select,button{font:inherit;color:var(--txt);background:#0f1730;border:1px solid var(--line);border-radius:10px;padding:8px 10px;outline:none}
-input:focus,select:focus{border-color:var(--ac)}
-button{cursor:pointer;transition:.15s}button:hover{border-color:var(--ac);color:var(--ac)}
-.btn{background:linear-gradient(90deg,var(--ac),var(--ac2));color:#06101f;border:0;font-weight:600}
-.btn:hover{color:#06101f;filter:brightness(1.1)}
-.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}
-.count{color:var(--sub);font-size:13px}
-.wrap{overflow:auto;max-height:60vh;border-radius:12px;border:1px solid var(--line)}
-table{border-collapse:collapse;width:100%;font-size:13px;white-space:nowrap}
-th{position:sticky;top:0;background:#1b2544;text-align:left;padding:10px 12px;cursor:pointer;user-select:none}
-th:hover{color:var(--ac)}
-td{padding:8px 12px;border-top:1px solid var(--line)}
-tr:hover td{background:rgba(129,140,248,.1)}
-.tag{background:rgba(94,234,212,.12);color:var(--ac);padding:2px 8px;border-radius:99px}
-td button{padding:3px 8px;font-size:12px;margin-right:4px}
-.dir{color:var(--sub);max-width:320px;overflow:hidden;text-overflow:ellipsis}
-.note{color:var(--sub);font-size:12px;line-height:1.7}
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ファイル検索ツール</title>
+  <meta name="description" content="フォルダー内のファイルを材料・色・納期・得意先コード・通し番号・部位で高速検索するツール" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-<header>
-  <h1>🦷 STLデータ検索</h1>
-  <p>ブラウザだけで動作・サーバー不要・データはPCの外に送信されません</p>
-</header>
-<main>
-  <section class="card" id="drop" tabindex="0">
-    <b>📁 NASの製作日フォルダをここにドラッグ＆ドロップ</b>
-    <small>またはクリックしてフォルダを選択（複数の製作日フォルダをまとめてドロップ可）</small>
-    <div id="status"></div>
-    <input id="picker" type="file" webkitdirectory multiple hidden>
-  </section>
+  <!-- 画面全体ドロップ時のオーバーレイ -->
+  <div id="dropOverlay" class="drop-overlay">ここにフォルダーをドロップ</div>
 
-  <section class="card">
-    <div class="grid">
-      <label>納期<input id="f-from" type="date"></label>
-      <label>材料<select id="f-material"><option value="">すべて</option></select></label>
-      <label>色<select id="f-shade"><option value="">すべて</option></select></label>
-      <label>歯科医院番号<input id="f-clinic" placeholder="例: 12345" inputmode="numeric"></label>
-      <label>通し番号<input id="f-serial" placeholder="例: 001"></label>
-      <label>部位<input id="f-site" placeholder="例: 16 または 16-17"></label>
-      <label>納期区分<select id="f-urgency"><option value="">すべて</option><option>W</option><option>WW</option><option>WR</option><option>WWR</option></select></label>
+  <main class="container">
+    <h1 class="title">ファイル検索ツール</h1>
+    <div class="search-panel">
+      <div class="drop-zone" id="dropZone">
+        <div>
+          <p class="drop-hint">フォルダーを画面のどこかにドラッグ＆ドロップ<br>または</p>
+          <button id="chooseBtn" class="btn" type="button">フォルダーを選択</button>
+          <input type="file" id="folderInput" webkitdirectory multiple />
+          <p id="status" class="status">未読み込み</p>
+          <button id="resetBtn" class="btn btn-sub btn-small" type="button" hidden>読み込みをリセット</button>
+        </div>
+      </div>
+      <div class="filters">
+        <select id="material">
+          <option value="">材料（選択）</option>
+          <option>PR</option><option>CS3</option><option>DK</option>
+          <option>GL</option><option>DKH</option><option>YM</option>
+        </select>
+        <select id="color">
+          <option value="">色（選択）</option>
+          <option>A1</option><option>A2</option><option>A3</option>
+          <option>A3.5</option><option>A4</option>
+        </select>
+        <input type="text" id="due" placeholder="納期 月日(例:1025)" />
+        <input type="text" id="code" placeholder="取引先コード(5桁)" />
+        <input type="text" id="seq" placeholder="通し番号(3桁)" />
+        <input type="text" id="part" placeholder="部位(2桁)" />
+        <label class="toggle-all">
+          <input type="checkbox" id="matchAll" /> 全条件一致のみ表示
+        </label>
+        <button id="searchBtn" class="btn" type="button">検索</button>
+        <button id="clearBtn" class="btn btn-sub" type="button">条件クリア</button>
+      </div>
     </div>
-    <div class="row">
-      <button id="search" class="btn">🔍 検索</button>
-      <button id="reset">条件クリア</button>
-      <span class="note">入力した項目だけで絞り込み（未入力の項目は無視・複数ヒット可）</span>
-      <span class="count" id="count"></span>
-    </div>
-  </section>
+    <div class="results" id="results"></div>
+  </main>
 
-  <section class="card">
-    <div class="wrap"><table id="tbl"><thead></thead><tbody></tbody></table></div>
-    <p class="note">
-      ※ ブラウザの仕様上、NASのフルパスは取得できません。代わりに「フォルダ/ファイル名」をコピーできます。<br>
-      ※ ファイルの<b>作成日時</b>はブラウザから取得できないため、<b>更新日時</b>と、所属する<b>製作日フォルダ</b>を表示します。<br>
-      ※ ファイル名の規則: 材料-シェード-納期区分(w/ww/wr/wwr)-月日4桁-医院番号5桁-通し番号3桁-部位(例 15 / 16-17)-種類_cad<br>
-      ※ 納期は月日のみのため、年は今日に最も近い年として扱います。
-    </p>
-  </section>
-</main>
+  <script>
+    const $ = id => document.getElementById(id);
+    const dropZone = $('dropZone'), folderInput = $('folderInput');
+    const overlay = $('dropOverlay'), statusEl = $('status'), resultsDiv = $('results');
+    const FIELDS = ['material', 'color', 'due', 'code', 'seq', 'part'];
+    let fileList = [];
 
-<script>
-const $ = id => document.getElementById(id);
+    // ---------- 読み込み完了時 ----------
+    function onFilesLoaded(files) {
+      fileList = files;
+      statusEl.textContent = `${files.length} 件のファイルを読み込みました`;
+      $('resetBtn').hidden = false;
+      runSearch();
+    }
 
-// 例: dk-a4-w-1026-01478-011-15-inlay_cad.stl
-//   材料-シェード-納期区分(w/ww/wr/wwr)-月日(MMDD)-医院番号(5桁)-通し番号(3桁)-部位(ハイフンで複数可)-種類_cad
-// 大文字小文字は区別しない。材料は英数字なら何でも読める（プルダウンは下のリスト）
-const MATERIALS = ["PR","CS3","DK","DHK","GL"];
-const SHADES = ["A1","A2","A3","A3.5","A4"];
-const SEP = "[_\\-\\s]";
-const PATTERN = new RegExp(
-  `^([A-Za-z][A-Za-z0-9]*)${SEP}([A-Za-z]\\d(?:\\.\\d)?)${SEP}(w{1,2}r?)${SEP}(\\d{4})${SEP}(\\d{5})${SEP}(\\d{3})${SEP}(\\d{2}(?:-\\d{2})*)(?:${SEP}([A-Za-z]*).*)?$`, "i");
+    // ---------- フォルダー選択ボタン ----------
+    $('chooseBtn').addEventListener('click', () => { folderInput.value = ''; folderInput.click(); });
+    folderInput.addEventListener('change', e => onFilesLoaded(Array.from(e.target.files)));
 
-// MMDD → 今日に最も近い年の日付を推定（例: 10月にとって 0105 は来年、1105 は今年）
-function inferDate(mmdd){
-  const mo=+mmdd.slice(0,2), dd=+mmdd.slice(2), now=new Date(), y=now.getFullYear();
-  let best=null;
-  for(const yy of [y-1,y,y+1]){
-    const dt=new Date(yy,mo-1,dd);
-    if(dt.getMonth()!==mo-1 || dt.getDate()!==dd) continue;
-    if(!best || Math.abs(dt-now)<Math.abs(best-now)) best=dt;
-  }
-  if(!best) return null;
-  const p=n=>String(n).padStart(2,"0");
-  return `${best.getFullYear()}-${p(mo)}-${p(dd)}`;
-}
+    // ---------- ドラッグ＆ドロップ（画面全体で受付） ----------
+    let dragDepth = 0;
+    window.addEventListener('dragenter', e => { e.preventDefault(); dragDepth++; overlay.classList.add('show'); });
+    window.addEventListener('dragleave', e => { e.preventDefault(); if (--dragDepth <= 0) { dragDepth = 0; overlay.classList.remove('show'); } });
+    window.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+    window.addEventListener('drop', async e => {
+      e.preventDefault();               // ブラウザがフォルダーを開く（別タブのインデックス表示）のを防止
+      dragDepth = 0; overlay.classList.remove('show');
+      // entry / handle は drop イベント中に同期的に取得する必要がある
+      const items = Array.from(e.dataTransfer.items || []).filter(it => it.kind === 'file');
+      const entries = items.map(it => it.webkitGetAsEntry && it.webkitGetAsEntry()).filter(Boolean);
+      const handlePromises = items.map(it => it.getAsFileSystemHandle ? it.getAsFileSystemHandle() : null).filter(Boolean);
+      statusEl.textContent = '読み込み中...';
+      try {
+        onFilesLoaded((await Promise.all(entries.map(readEntry))).flat());
+      } catch (err1) {
+        // file:// で開いている場合 Chrome は上記APIを拒否する → File System Access API で再試行
+        try {
+          const handles = (await Promise.all(handlePromises)).filter(Boolean);
+          if (!handles.length) throw err1;
+          onFilesLoaded((await Promise.all(handles.map(readHandle))).flat());
+        } catch (err2) {
+          statusEl.innerHTML = location.protocol === 'file:'
+            ? 'ブラウザの制限でドラッグ読み込みできません。<br>「フォルダーを選択」ボタンを使うか、<b>start.bat</b> から起動してください。'
+            : '読み込みに失敗しました: ' + err2.message;
+        }
+      }
+    });
 
-function parseName(name){
-  const m = PATTERN.exec(name.slice(0,-4));
-  if(!m) return null;
-  const due = inferDate(m[4]);
-  if(!due) return null;
-  return {material:m[1].toUpperCase(), shade:m[2].toUpperCase(), urgency:m[3].toUpperCase(), due,
-          md:`${m[4].slice(0,2)}/${m[4].slice(2)}`, clinic:m[5], serial:m[6], site:m[7], sites:m[7].split("-"),
-          kind:(m[8]||"").toLowerCase()};
-}
+    async function readHandle(h) {
+      if (h.kind === 'file') return [await h.getFile()];
+      const out = [];
+      for await (const child of h.values()) out.push(...await readHandle(child));
+      return out;
+    }
 
-// プルダウンは固定リスト
-for(const [id,list] of [["f-material",MATERIALS],["f-shade",SHADES]])
-  $(id).insertAdjacentHTML("beforeend", list.map(v=>`<option>${v}</option>`).join(""));
+    // エントリを再帰的に読み込み（readEntries は1回最大100件なので空になるまで繰り返す）
+    async function readEntry(entry) {
+      if (entry.isFile) return [await new Promise((res, rej) => entry.file(res, rej))];
+      const reader = entry.createReader(), all = [];
+      while (true) {
+        const batch = await new Promise((res, rej) => reader.readEntries(res, rej));
+        if (!batch.length) break;
+        all.push(...batch);
+      }
+      return (await Promise.all(all.map(readEntry))).flat();
+    }
 
-// ===== 読み込み（2段階）=====
-// 1段階目: フォルダ内のファイル名だけを高速に列挙して即表示
-// 2段階目: 更新日時・サイズは必要な行だけ取得（表示中の行／更新日時順にしたときは絞り込み結果の全件）
-let rows = [], sortKey = "due", sortDir = -1, gen = 0;
+    // ---------- ファイル名解析 ----------
+    // 構成: 材料 色 納期(W/WW/WR/WWR+月日4桁) 取引先コード5桁 通し番号3桁 部位2桁
+    // 区切り文字の有無・種類（_ - 空白）に関係なく桁数で判定する
+    function parseName(name) {
+      const base = name.replace(/\.[A-Za-z0-9]{1,5}$/, '');
+      const p = base.split(/[_\-\s]+/);
+      const info = { material: p[0] || '', color: p[1] || '', due: '', code: '', seq: '', part: '' };
+      // 納期4桁(WW等の後) + 取引先5桁 + 通し番号3桁 + 部位2桁 を一括で判定（区切りの有無は問わない）
+      const S = '[_\\-\\s]*';
+      const m = base.match(new RegExp(`(?<!\\d)(\\d{4})${S}(\\d{5})${S}(\\d{3})${S}(\\d{2})(?!\\d)`));
+      if (m) { [, info.due, info.code, info.seq, info.part] = m; }
+      return info;
+    }
 
-function addName(name, relPath, src){
-  if(!/\.stl$/i.test(name)) return;
-  const meta = parseName(name);
-  if(!meta) return;   // 命名規則に合わないファイルは無視
-  rows.push({...meta, src, name, rel:relPath, dir:relPath.slice(0, relPath.length-name.length-1), modified:null, size:null});
-}
+    // ---------- 照合（一致した条件数をスコアとして返す） ----------
+    function score(info, c) {
+      const lc = s => s.toLowerCase();
+      const tests = {
+        material: () => lc(info.material) === lc(c.material),            // 完全一致（DK と DKH を区別）
+        color:    () => lc(info.color) === lc(c.color),
+        due:      () => info.due.includes(c.due),
+        code:     () => info.code.includes(c.code),
+        seq:      () => info.seq === c.seq.padStart(3, '0'),   // 「1」→「001」として完全一致
+        part:     () => info.part === c.part.padStart(2, '0'), // 「1」→「01」として完全一致
+      };
+      const active = FIELDS.filter(f => c[f]);
+      const miss = active.filter(f => !tests[f]());
+      return { hit: active.length - miss.length, total: active.length, miss };
+    }
 
-function readAll(reader){
-  return new Promise((res,rej)=>{
-    const all=[]; (function next(){ reader.readEntries(es=>{ if(!es.length) return res(all); all.push(...es); next(); }, rej); })();
-  });
-}
-let stat = {dirs:0, files:0, t0:0};
-async function walk(entry, path, my){
-  if(my!==gen) return;
-  if(entry.isFile){ stat.files++; return addName(entry.name, path+entry.name, entry); }
-  if(!entry.isDirectory) return;
-  stat.dirs++;
-  const es = await readAll(entry.createReader());
-  await Promise.all(es.map(e=>walk(e, path+entry.name+"/", my)));   // サブフォルダを並列に走査
-}
+    // ---------- 検索 ----------
+    function runSearch() {
+      const c = {};
+      FIELDS.forEach(f => c[f] = $(f).value.trim());
+      const requireAll = $('matchAll').checked;
+      const list = fileList.map(file => {
+        const info = parseName(file.name);
+        return { file, info, ...score(info, c) };
+      }).filter(r => r.total === 0 || (requireAll ? r.hit === r.total : r.hit > 0))
+        .sort((a, b) => b.hit - a.hit || b.file.lastModified - a.file.lastModified);
+      displayResults(list);
+    }
+    $('searchBtn').addEventListener('click', runSearch);
+    FIELDS.forEach(f => $(f).addEventListener('keydown', e => { if (e.key === 'Enter') runSearch(); }));
 
-// File System Access API 版（名前の列挙のみで、ファイルを開かない）
-async function walkH(dir, path, my){
-  if(my!==gen) return;
-  stat.dirs++;
-  const p = path + dir.name + "/", subs = [];
-  for await(const c of dir.values()){
-    if(c.kind==="file"){ stat.files++; addName(c.name, p+c.name, c); } else subs.push(c);
-  }
-  await Promise.all(subs.map(s=>walkH(s, p, my)));
-}
+    // 条件クリア: 検索条件と結果表示のみリセット（読み込んだファイルは保持）
+    $('clearBtn').addEventListener('click', () => {
+      FIELDS.forEach(f => $(f).value = '');
+      $('matchAll').checked = false;
+      resultsDiv.innerHTML = '';
+      $('material').focus();
+    });
 
-const toFile = src => src instanceof File ? Promise.resolve(src)
-  : src.getFile ? src.getFile() : new Promise((r,j)=>src.file(r,j));
+    // 読み込みリセット: 取り込んだフォルダーの内容を破棄（検索条件は保持）
+    $('resetBtn').addEventListener('click', () => {
+      fileList = [];
+      folderInput.value = '';
+      resultsDiv.innerHTML = '';
+      statusEl.textContent = '未読み込み';
+      $('resetBtn').hidden = true;
+    });
 
-let active = 0, waiting = [];
-function limit(fn){ return new Promise(res=>{
-  const run = ()=>{ active++; fn().finally(()=>{ active--; if(waiting.length) waiting.shift()(); }).then(res); };
-  active<48 ? run() : waiting.push(run); }); }
-function ensureMeta(r){
-  if(r.p) return r.p;
-  return r.p = limit(async()=>{ try{ const f=await toFile(r.src); r.modified=f.lastModified; r.size=f.size; }catch{ r.modified=0; r.size=0; } });
-}
-let tm=null;
-function scheduleRender(){ if(tm) return; tm=setTimeout(()=>{ tm=null; render(); },300); }
-
-function afterList(){
-  const sec = ((performance.now()-stat.t0)/1000).toFixed(1);
-  $("status").textContent = `✅ STL ${rows.length} 件を検出。走査: フォルダ ${stat.dirs}・ファイル ${stat.files}・${sec}秒。中身は読み込んでいません。`;
-  render();
-}
-
-async function handleDrop(items){
-  const my=++gen; rows=[]; stat={dirs:0, files:0, t0:performance.now()};
-  const timer=setInterval(()=>{ if(my!==gen) return clearInterval(timer);
-    $("status").textContent=`読み込み中… フォルダ ${stat.dirs}・ファイル ${stat.files}（${((performance.now()-stat.t0)/1000).toFixed(1)}秒）`; },200);
-  // dropイベント中に同期的に取得しておく必要がある
-  const list = [...items];
-  const hps = list.map(i=>i.getAsFileSystemHandle ? i.getAsFileSystemHandle() : Promise.resolve(null));
-  const entries = list.map(i=>i.webkitGetAsEntry && i.webkitGetAsEntry());
-  try{
-    const hs = await Promise.all(hps.map(p=>p.catch(()=>null)));
-    await Promise.all(hs.map((h,i)=>{
-      if(h) return h.kind==="directory" ? walkH(h, "", my) : (stat.files++, addName(h.name, h.name, h));
-      if(entries[i]) return walk(entries[i], "", my);
-    }));
-  } finally{ clearInterval(timer); }
-  if(my===gen) afterList();
-}
-
-async function pickFolder(){
-  if(!window.showDirectoryPicker) return $("picker").click();
-  let dir;
-  try{ dir = await showDirectoryPicker(); }
-  catch(e){ if(e.name==="AbortError") return; return $("picker").click(); }   // ドライブ直下等で拒否されたときは従来方式へ
-  const my=++gen; rows=[]; stat={dirs:0, files:0, t0:performance.now()};
-  $("status").textContent="読み込み中…";
-  await walkH(dir, "", my);
-  if(my===gen) afterList();
-}
-function handlePicker(files){
-  ++gen; rows=[]; stat={dirs:0, files:files.length, t0:performance.now()};
-  for(const f of files){ const p=f.webkitRelativePath||f.name; addName(f.name, p, f); }
-  rows.forEach(r=>{ r.modified=r.src.lastModified; r.size=r.src.size; r.p=Promise.resolve(); });
-  afterList();
-}
-
-const drop = $("drop");
-drop.addEventListener("click", pickFolder);
-$("picker").addEventListener("change", e=>handlePicker(e.target.files));
-["dragenter","dragover"].forEach(t=>drop.addEventListener(t,e=>{e.preventDefault();drop.classList.add("over")}));
-["dragleave","drop"].forEach(t=>drop.addEventListener(t,e=>{e.preventDefault();drop.classList.remove("over")}));
-drop.addEventListener("drop", e=>handleDrop(e.dataTransfer.items));
-// 画面のどこにドロップしても開かないようにする
-window.addEventListener("dragover",e=>e.preventDefault());
-window.addEventListener("drop",e=>{e.preventDefault(); if(!drop.contains(e.target)) handleDrop(e.dataTransfer.items);});
-
-// ===== 検索・表示 =====
-const COLS = [["due","納期"],["urgency","区分"],["material","材料"],["shade","シェード"],["clinic","医院番号"],["serial","通し番号"],
-  ["site","部位"],["kind","種類"],["modified","更新日時"],["dir","製作日フォルダ"],["name","ファイル名"],["size","サイズ"]];
-$("tbl").tHead.innerHTML = "<tr>"+COLS.map(([k,l])=>`<th data-k="${k}">${l}<span id="s-${k}"></span></th>`).join("")+"<th>操作</th></tr>";
-$("tbl").tHead.addEventListener("click", e=>{
-  const k = e.target.closest("th")?.dataset.k; if(!k) return;
-  sortDir = (sortKey===k) ? -sortDir : (k==="modified"?-1:1); sortKey=k; render();
-});
-
-const fmt = t => { const d=new Date(t), p=n=>String(n).padStart(2,"0");
-  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
-const kb = n => n>=1048576 ? (n/1048576).toFixed(1)+" MB" : Math.max(1,Math.round(n/1024))+" KB";
-const esc = s => s.replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-
-// 検索ボタンを押した時点の条件を保持（入力中は結果を変えない）
-const FIELDS = ["f-from","f-material","f-shade","f-clinic","f-serial","f-site","f-urgency"];
-let F = {};
-const applyFilter = () => { F = Object.fromEntries(FIELDS.map(id=>[id, $(id).value.trim()])); render(); };
-
-function filtered(){
-  const v = id => F[id] || "";
-  const clinic=v("f-clinic"), due=v("f-from").slice(5).replace("-","/"), mat=v("f-material"), sh=v("f-shade"),
-        urg=v("f-urgency"), serial=v("f-serial"),
-        site=v("f-site").split(/[\s,\-，、]+/).filter(Boolean);
-  return rows.filter(r=>
-    (!clinic || r.clinic.includes(clinic)) && (!due || r.md===due) &&
-    (!urg || r.urgency===urg) &&
-    (!mat || r.material===mat) && (!sh || r.shade===sh) && (!serial || r.serial.includes(serial)) &&
-    site.every(s=>r.sites.includes(s.padStart(2,"0"))));
-}
-
-function render(){
-  const list = filtered().sort((a,b)=>{ const x=a[sortKey]??0, y=b[sortKey]??0;
-    return (x<y?-1:x>y?1:0)*sortDir || a.name.localeCompare(b.name); });
-  COLS.forEach(([k])=>$("s-"+k).textContent = k===sortKey ? (sortDir>0?" ▲":" ▼") : "");
-  $("count").textContent = rows.length ? `${list.length} 件 / 全 ${rows.length} 件` : "";
-  const shown = list.slice(0,300);
-  const need = (sortKey==="modified"||sortKey==="size") ? list : shown;   // 更新日時順のときだけ絞り込み結果の全件を取得
-  const todo = need.filter(r=>r.modified===null);
-  todo.forEach(r=>ensureMeta(r).then(scheduleRender));
-  if(todo.length) $("count").textContent += `（更新日時を取得中… 残り${todo.length}件）`;
-  $("tbl").tBodies[0].innerHTML = shown.map((r,i)=>`<tr>
-    <td title="${r.due}">${r.md}</td><td>${r.urgency}</td><td><span class="tag">${r.material}</span></td><td>${r.shade}</td><td>${r.clinic}</td>
-    <td>${r.serial}</td><td>${r.site}</td><td>${esc(r.kind)}</td><td>${r.modified===null?"…":fmt(r.modified)}</td><td class="dir" title="${esc(r.dir)}">${esc(r.dir)||"-"}</td>
-    <td>${esc(r.name)}</td><td>${r.size===null?"…":kb(r.size)}</td>
-    <td><button data-a="copy" data-i="${i}">パスをコピー</button><button data-a="dl" data-i="${i}">DL</button></td></tr>`).join("");
-  if(list.length>300) $("count").textContent += "（先頭300件を表示。条件を絞ってください）";
-  render.shown = shown;
-}
-$("tbl").tBodies[0].addEventListener("click", async e=>{
-  const b=e.target.closest("button"); if(!b) return;
-  const r = render.shown[+b.dataset.i];
-  if(b.dataset.a==="copy"){
-    try{ await navigator.clipboard.writeText(r.rel); }catch{ prompt("コピーしてください", r.rel); }
-    b.textContent="✔ コピー済"; setTimeout(()=>b.textContent="パスをコピー",1200);
-  } else {
-    const f=await toFile(r.src);
-    const a=document.createElement("a"); a.href=URL.createObjectURL(f); a.download=r.name; a.click();
-    setTimeout(()=>URL.revokeObjectURL(a.href),5000);
-  }
-});
-
-$("search").onclick = applyFilter;
-FIELDS.forEach(id=>$(id).addEventListener("keydown", e=>{ if(e.key==="Enter") applyFilter(); }));
-$("reset").onclick = ()=>{ FIELDS.forEach(id=>$(id).value=""); applyFilter(); };
-render();
-</script>
+    // ---------- 結果表示（完全一致 と 部分一致の候補 を分けて表示） ----------
+    const LABEL = { material: '材料', color: '色', due: '納期', code: '取引先', seq: '通番', part: '部位' };
+    function displayResults(list) {
+      resultsDiv.innerHTML = '';
+      if (!fileList.length) return;
+      const full = list.filter(r => r.hit === r.total);
+      const partial = list.filter(r => r.hit < r.total);
+      addSection(`✅ 完全一致 ${full.length} 件（全 ${fileList.length} 件中）`, full, true);
+      if (partial.length) addSection(`部分一致の候補 ${partial.length} 件（赤字＝不一致の条件）`, partial, false);
+    }
+    function addSection(title, list, isFull) {
+      const head = document.createElement('p');
+      head.className = 'result-count' + (isFull ? '' : ' partial');
+      head.textContent = title;
+      resultsDiv.appendChild(head);
+      const ul = document.createElement('ul');
+      list.slice(0, 1000).forEach(({ file, info, hit, total, miss }) => {
+        const li = document.createElement('li');
+        if (isFull && total) li.classList.add('full-match');
+        const fields = FIELDS.map(f => {
+          const s = document.createElement('span');
+          s.className = 'field' + (miss.includes(f) ? ' miss' : '');
+          s.textContent = `${LABEL[f]}:${info[f] || '-'}`;
+          return s;
+        });
+        const d = new Date(file.lastModified);
+        li.innerHTML = `<div class="r-main"><div class="r-name"></div><div class="r-fields"></div></div>
+          <div class="r-date"><span class="r-date-label">更新日時</span><span class="r-ymd"></span><span class="r-hm"></span></div>`;
+        li.querySelector('.r-name').textContent = `${total ? `[${hit}/${total}] ` : ''}${file.name}`;
+        li.querySelector('.r-fields').append(...fields);
+        li.querySelector('.r-ymd').textContent = d.toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' });
+        li.querySelector('.r-hm').textContent = d.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        ul.appendChild(li);
+      });
+      resultsDiv.appendChild(ul);
+    }
+  </script>
 </body>
 </html>
