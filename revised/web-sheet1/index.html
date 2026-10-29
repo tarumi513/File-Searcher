@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ファイル検索ツール（スプレッドシート対応版）</title>
+  <meta name="description" content="フォルダー内のファイル、またはGoogleスプレッドシートのファイル名一覧を、材料・色・納期・取引先コード・通し番号・部位で高速検索するツール" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- 画面全体ドロップ時のオーバーレイ -->
+  <div id="dropOverlay" class="drop-overlay">ここにフォルダーをドロップ</div>
+
+  <main class="container">
+    <h1 class="title">ファイル検索ツール</h1>
+
+    <!-- 取り込み元の切り替え -->
+    <nav class="tabs" role="tablist">
+      <button id="tabFolder" class="tab active" type="button" role="tab" data-mode="folder">📁 フォルダー</button>
+      <button id="tabSheet" class="tab" type="button" role="tab" data-mode="sheet">📊 スプレッドシート</button>
+    </nav>
+
+    <div class="search-panel">
+      <!-- フォルダー取り込み -->
+      <div class="drop-zone" id="dropZone">
+        <div>
+          <p class="drop-hint">フォルダーを画面のどこかにドラッグ＆ドロップ<br>または</p>
+          <button id="chooseBtn" class="btn" type="button">フォルダーを選択</button>
+          <input type="file" id="folderInput" webkitdirectory multiple />
+          <p id="status" class="status">未読み込み</p>
+          <button id="resetBtn" class="btn btn-sub btn-small" type="button" hidden>読み込みをリセット</button>
+        </div>
+      </div>
+
+      <!-- スプレッドシート取り込み -->
+      <div class="drop-zone sheet-pane" id="sheetPane" hidden>
+        <div class="sheet-inner">
+          <label class="sheet-label" for="sheetUrl">A. シートのURLを貼り付け</label>
+          <div class="sheet-row">
+            <input type="url" id="sheetUrl" placeholder="https://docs.google.com/spreadsheets/d/..." />
+            <button id="urlBtn" class="btn btn-inline" type="button">読込</button>
+          </div>
+
+          <span class="sheet-label">B. CSVファイル（ファイル → ダウンロード → CSV）</span>
+          <div class="sheet-row">
+            <button id="csvBtn" class="btn btn-sub btn-inline" type="button">CSVを選択</button>
+            <span class="sheet-hint">または画面にドラッグ</span>
+            <input type="file" id="csvInput" accept=".csv,.tsv,.txt,text/csv" />
+          </div>
+
+          <label class="sheet-label" for="pasteArea">C. コピーした表を貼り付け（Ctrl+A → Ctrl+C → ここで Ctrl+V）</label>
+          <textarea id="pasteArea" rows="2" placeholder="ここをクリックして Ctrl+V"></textarea>
+
+          <p id="sheetStatus" class="status">未読み込み</p>
+          <button id="sheetResetBtn" class="btn btn-sub btn-small" type="button" hidden>読み込みをリセット</button>
+        </div>
+      </div>
+
+      <div class="filters">
+        <select id="material">
+          <option value="">材料（選択）</option>
+          <option>PR</option><option>CS3</option><option>DK</option>
+          <option>GL</option><option>DKH</option><option>YM</option>
+        </select>
+        <select id="color">
+          <option value="">色（選択）</option>
+          <option>A1</option><option>A2</option><option>A3</option>
+          <option>A3.5</option><option>A4</option>
+        </select>
+        <input type="text" id="due" placeholder="納期 月日(例:1025)" />
+        <input type="text" id="code" placeholder="取引先コード(5桁)" />
+        <input type="text" id="seq" placeholder="通し番号(3桁)" />
+        <input type="text" id="part" placeholder="部位(2桁)" />
+        <label class="toggle-all">
+          <input type="checkbox" id="matchAll" /> 全条件一致のみ表示
+        </label>
+        <button id="searchBtn" class="btn" type="button">検索</button>
+        <button id="clearBtn" class="btn btn-sub" type="button">条件クリア</button>
+      </div>
+    </div>
+    <div class="results" id="results"></div>
+  </main>
+
+  <script>
+    const $ = id => document.getElementById(id);
+    const folderInput = $('folderInput'), csvInput = $('csvInput');
+    const overlay = $('dropOverlay'), statusEl = $('status'), sheetStatus = $('sheetStatus'), resultsDiv = $('results');
+    const FIELDS = ['material', 'color', 'due', 'code', 'seq', 'part'];
+
+    // 取り込みデータはモードごとに保持（切り替えても消えない）
+    // folder: { name, file, info } / sheet: { name, row, info }
+    const state = { folder: [], sheet: [] };
+    let mode = 'folder';
+
+    // ---------- モード切り替え ----------
+    function setMode(m) {
+      mode = m;
+      document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.mode === m));
+      $('dropZone').hidden = m !== 'folder';
+      $('sheetPane').hidden = m !== 'sheet';
+      overlay.textContent = m === 'folder' ? 'ここにフォルダーをドロップ' : 'ここにCSVファイルをドロップ';
+      runSearch();
+    }
+    document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => setMode(t.dataset.mode)));
+
+    // ================= フォルダー取り込み =================
+    function onFilesLoaded(files) {
+      state.folder = files.map(f => ({ name: f.name, file: f, info: parseName(f.name) }));
+      statusEl.textContent = `${files.length} 件のファイルを読み込みました`;
+      $('resetBtn').hidden = false;
+      if (mode !== 'folder') setMode('folder'); else runSearch();
+    }
+
+    $('chooseBtn').addEventListener('click', () => { folderInput.value = ''; folderInput.click(); });
+    folderInput.addEventListener('change', e => onFilesLoaded(Array.from(e.target.files)));
+
+    // ---------- ドラッグ＆ドロップ（画面全体で受付） ----------
+    let dragDepth = 0;
+    window.addEventListener('dragenter', e => { e.preventDefault(); dragDepth++; overlay.classList.add('show'); });
+    window.addEventListener('dragleave', e => { e.preventDefault(); if (--dragDepth <= 0) { dragDepth = 0; overlay.classList.remove('show'); } });
+    window.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+    window.addEventListener('drop', async e => {
+      e.preventDefault();               // ブラウザがフォルダーを開く（別タブのインデックス表示）のを防止
+      dragDepth = 0; overlay.classList.remove('show');
+      // entry / handle / files は drop イベント中に同期的に取得する必要がある
+      const dtFiles = Array.from(e.dataTransfer.files || []);
+      const items = Array.from(e.dataTransfer.items || []).filter(it => it.kind === 'file');
+      const entries = items.map(it => it.webkitGetAsEntry && it.webkitGetAsEntry()).filter(Boolean);
+      const handlePromises = items.map(it => it.getAsFileSystemHandle ? it.getAsFileSystemHandle() : null).filter(Boolean);
+
+      // CSV 1ファイルのドロップ → スプレッドシートとして読み込み
+      if (dtFiles.length === 1 && /\.(csv|tsv|txt)$/i.test(dtFiles[0].name) && !(entries[0] && entries[0].isDirectory)) {
+        loadCsvFile(dtFiles[0]);
+        return;
+      }
+
+      statusEl.textContent = '読み込み中...';
+      if (mode !== 'folder') setMode('folder');
+      try {
+        onFilesLoaded((await Promise.all(entries.map(readEntry))).flat());
+      } catch (err1) {
+        // file:// で開いている場合 Chrome は上記APIを拒否する → File System Access API で再試行
+        try {
+          const handles = (await Promise.all(handlePromises)).filter(Boolean);
+          if (!handles.length) throw err1;
+          onFilesLoaded((await Promise.all(handles.map(readHandle))).flat());
+        } catch (err2) {
+          statusEl.innerHTML = location.protocol === 'file:'
+            ? 'ブラウザの制限でドラッグ読み込みできません。<br>「フォルダーを選択」ボタンを使うか、<b>start.bat</b> から起動してください。'
+            : '読み込みに失敗しました: ' + err2.message;
+        }
+      }
+    });
+
+    async function readHandle(h) {
+      if (h.kind === 'file') return [await h.getFile()];
+      const out = [];
+      for await (const child of h.values()) out.push(...await readHandle(child));
+      return out;
+    }
+
+    // エントリを再帰的に読み込み（readEntries は1回最大100件なので空になるまで繰り返す）
+    async function readEntry(entry) {
+      if (entry.isFile) return [await new Promise((res, rej) => entry.file(res, rej))];
+      const reader = entry.createReader(), all = [];
+      while (true) {
+        const batch = await new Promise((res, rej) => reader.readEntries(res, rej));
+        if (!batch.length) break;
+        all.push(...batch);
+      }
+      return (await Promise.all(all.map(readEntry))).flat();
+    }
+
+    // 読み込みリセット（フォルダー）
+    $('resetBtn').addEventListener('click', () => {
+      state.folder = [];
+      folderInput.value = '';
+      statusEl.textContent = '未読み込み';
+      $('resetBtn').hidden = true;
+      runSearch();
+    });
+
+    // ================= スプレッドシート取り込み =================
+    // CSV/TSV パーサー（ダブルクォート・セル内改行に対応）
+    function parseDelimited(text, d) {
+      const rows = []; let row = [], cell = '', q = false;
+      for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (q) {
+          if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; }
+          else cell += ch;
+        } else if (ch === '"' && cell === '') q = true;
+        else if (ch === d) { row.push(cell); cell = ''; }
+        else if (ch === '\n' || ch === '\r') {
+          if (ch === '\r' && text[i + 1] === '\n') i++;
+          row.push(cell); rows.push(row); row = []; cell = '';
+        } else cell += ch;
+      }
+      if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+      return rows;
+    }
+
+    const colLetter = n => { let s = ''; for (n++; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + (n - 1) % 26) + s; return s; };
+    const normHeader = s => (s || '').normalize('NFKC').replace(/[\s.]/g, '').toLowerCase();
+
+    // 表テキスト → レコード化（見出し「ファイルNo」の列、無ければD列。通し番号＝シートの行番号）
+    function loadSheetText(text, delim, src, note = '') {
+      const rows = parseDelimited(text.replace(/^\uFEFF/, ''), delim);
+      let col = 3, start = 0;
+      for (let r = 0; r < Math.min(rows.length, 30); r++) {
+        const c = rows[r].findIndex(v => normHeader(v) === 'ファイルno');
+        if (c >= 0) { col = c; start = r + 1; break; }
+      }
+      const recs = [];
+      for (let r = start; r < rows.length; r++) {
+        const name = (rows[r][col] || '').trim();
+        if (name) recs.push({ name, row: r + 1, info: parseName(name) });
+      }
+      state.sheet = recs;
+      if (!recs.length) {
+        sheetStatus.textContent = `${src}: ファイル名が見つかりませんでした（${colLetter(col)}列を確認してください）`;
+        $('sheetResetBtn').hidden = true;
+      } else {
+        sheetStatus.textContent = `${src}: ${recs.length} 件を読み込みました（${colLetter(col)}列${start ? `・見出し${start}行目` : ''}）${note}`;
+        $('sheetResetBtn').hidden = false;
+      }
+      if (mode !== 'sheet') setMode('sheet'); else runSearch();
+    }
+
+    // 文字コード自動判定（UTF-8 → 失敗時 Shift_JIS）
+    async function decodeFile(file) {
+      const buf = await file.arrayBuffer();
+      try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); }
+      catch { return new TextDecoder('shift_jis').decode(buf); }
+    }
+    const guessDelim = (text, name = '') => /\.tsv$/i.test(name) || (/\t/.test(text.split('\n')[0]) && !/,/.test(text.split('\n')[0])) ? '\t' : ',';
+
+    // B. CSVファイル
+    async function loadCsvFile(file) {
+      sheetStatus.textContent = '読み込み中...';
+      if (mode !== 'sheet') setMode('sheet');
+      try {
+        const text = await decodeFile(file);
+        loadSheetText(text, guessDelim(text, file.name), `CSV「${file.name}」`);
+      } catch (err) { sheetStatus.textContent = 'CSVの読み込みに失敗しました: ' + err.message; }
+    }
+    $('csvBtn').addEventListener('click', () => { csvInput.value = ''; csvInput.click(); });
+    csvInput.addEventListener('change', e => { if (e.target.files[0]) loadCsvFile(e.target.files[0]); });
+
+    // C. 貼り付け（Google スプレッドシートのコピーはタブ区切り）
+    $('pasteArea').addEventListener('paste', e => {
+      e.preventDefault();
+      const text = e.clipboardData.getData('text/plain');
+      if (!text.trim()) return;
+      $('pasteArea').value = '';
+      $('pasteArea').placeholder = '貼り付け済み（再度貼り付けると上書き）';
+      loadSheetText(text, '\t', '貼り付け', '　※1行目からコピーしていない場合、行番号がずれます');
+    });
+
+    // A. URL（「リンクを知っている全員が閲覧可」または「ウェブに公開」のシートのみ）
+    async function loadFromUrl() {
+      const url = $('sheetUrl').value.trim();
+      if (!url) { sheetStatus.textContent = 'URLを入力してください'; return; }
+      const cands = [];
+      if (/\/spreadsheets\/d\/e\//.test(url)) {
+        cands.push({ u: url.replace(/\/pub(html)?([?#].*)?$/, '') + '/pub?output=csv', note: '' });
+      } else {
+        const id = (url.match(/\/spreadsheets\/d\/([\w-]+)/) || [])[1];
+        if (!id) { sheetStatus.textContent = 'GoogleスプレッドシートのURLではありません'; return; }
+        cands.push({ u: `https://docs.google.com/spreadsheets/d/${id}/export?format=csv`, note: '' });
+        cands.push({ u: `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&headers=0`, note: '　※簡易取得のため、空行があると行番号がずれる場合があります' });
+      }
+      sheetStatus.textContent = '読み込み中...';
+      for (const { u, note } of cands) {
+        try {
+          const res = await fetch(u, { credentials: 'omit' });
+          const text = await res.text();
+          if (!res.ok || /^\s*</.test(text)) continue;   // ログイン画面(HTML)が返った場合は失敗扱い
+          loadSheetText(text, ',', 'URL', note);
+          return;
+        } catch { /* 次の方法を試す */ }
+      }
+      sheetStatus.innerHTML = 'URLから読み込めませんでした（社内限定共有のシートは直接読めません）。<br><b>B（CSV）</b>または<b>C（貼り付け）</b>をご利用ください。';
+    }
+    $('urlBtn').addEventListener('click', loadFromUrl);
+    $('sheetUrl').addEventListener('keydown', e => { if (e.key === 'Enter') loadFromUrl(); });
+
+    // 読み込みリセット（スプレッドシート）
+    $('sheetResetBtn').addEventListener('click', () => {
+      state.sheet = [];
+      csvInput.value = '';
+      $('pasteArea').value = '';
+      $('pasteArea').placeholder = 'ここをクリックして Ctrl+V';
+      sheetStatus.textContent = '未読み込み';
+      $('sheetResetBtn').hidden = true;
+      runSearch();
+    });
+
+    // ================= 共通：解析・照合・表示 =================
+    // ---------- ファイル名解析 ----------
+    // 構成: 材料 色 納期(W/WW/WR/WWR+月日4桁) 取引先コード5桁 通し番号3桁 部位2桁
+    // 区切り文字の有無・種類（_ - 空白）に関係なく桁数で判定する
+    function parseName(name) {
+      const base = name.replace(/\.[A-Za-z0-9]{1,5}$/, '');
+      const p = base.split(/[_\-\s]+/);
+      const info = { material: p[0] || '', color: p[1] || '', due: '', code: '', seq: '', part: '' };
+      // 納期4桁(WW等の後) + 取引先5桁 + 通し番号3桁 + 部位2桁 を一括で判定（区切りの有無は問わない）
+      const m = base.match(/(?<!\d)(\d{4})[_\-\s]*(\d{5})[_\-\s]*(\d{3})[_\-\s]*(\d{2})(?!\d)/);
+      if (m) { [, info.due, info.code, info.seq, info.part] = m; }
+      return info;
+    }
+
+    // ---------- 照合（一致した条件数をスコアとして返す） ----------
+    function score(info, c) {
+      const lc = s => s.toLowerCase();
+      const tests = {
+        material: () => lc(info.material) === lc(c.material),            // 完全一致（DK と DKH を区別）
+        color:    () => lc(info.color) === lc(c.color),
+        due:      () => info.due.includes(c.due),
+        code:     () => info.code.includes(c.code),
+        seq:      () => info.seq === c.seq.padStart(3, '0'),   // 「1」→「001」として完全一致
+        part:     () => info.part === c.part.padStart(2, '0'), // 「1」→「01」として完全一致
+      };
+      const active = FIELDS.filter(f => c[f]);
+      const miss = active.filter(f => !tests[f]());
+      return { hit: active.length - miss.length, total: active.length, miss };
+    }
+
+    // ---------- 検索（現在のモードのデータが対象） ----------
+    function runSearch() {
+      const c = {};
+      FIELDS.forEach(f => c[f] = $(f).value.trim());
+      const requireAll = $('matchAll').checked;
+      const order = mode === 'folder'
+        ? (a, b) => b.file.lastModified - a.file.lastModified   // フォルダー: 新しい順
+        : (a, b) => a.row - b.row;                              // シート: 行番号順
+      const list = state[mode].map(rec => ({ rec, ...score(rec.info, c) }))
+        .filter(r => r.total === 0 || (requireAll ? r.hit === r.total : r.hit > 0))
+        .sort((a, b) => b.hit - a.hit || order(a.rec, b.rec));
+      displayResults(list);
+    }
+    $('searchBtn').addEventListener('click', runSearch);
+    FIELDS.forEach(f => $(f).addEventListener('keydown', e => { if (e.key === 'Enter') runSearch(); }));
+
+    // 条件クリア: 検索条件と結果表示のみリセット（読み込んだデータは保持）
+    $('clearBtn').addEventListener('click', () => {
+      FIELDS.forEach(f => $(f).value = '');
+      $('matchAll').checked = false;
+      resultsDiv.innerHTML = '';
+      $('material').focus();
+    });
+
+    // ---------- 結果表示（完全一致 と 部分一致の候補 を分けて表示） ----------
+    const LABEL = { material: '材料', color: '色', due: '納期', code: '取引先', seq: '通番', part: '部位' };
+    function displayResults(list) {
+      resultsDiv.innerHTML = '';
+      const all = state[mode].length;
+      if (!all) return;
+      const full = list.filter(r => r.hit === r.total);
+      const partial = list.filter(r => r.hit < r.total);
+      addSection(`✅ 完全一致 ${full.length} 件（全 ${all} 件中）`, full, true);
+      if (partial.length) addSection(`部分一致の候補 ${partial.length} 件（赤字＝不一致の条件）`, partial, false);
+    }
+    function addSection(title, list, isFull) {
+      const head = document.createElement('p');
+      head.className = 'result-count' + (isFull ? '' : ' partial');
+      head.textContent = title;
+      resultsDiv.appendChild(head);
+      const ul = document.createElement('ul');
+      list.slice(0, 1000).forEach(({ rec, hit, total, miss }) => {
+        const li = document.createElement('li');
+        if (isFull && total) li.classList.add('full-match');
+        const fields = FIELDS.map(f => {
+          const s = document.createElement('span');
+          s.className = 'field' + (miss.includes(f) ? ' miss' : '');
+          s.textContent = `${LABEL[f]}:${rec.info[f] || '-'}`;
+          return s;
+        });
+        li.innerHTML = `<div class="r-main"><div class="r-name"></div><div class="r-fields"></div></div>
+          <div class="r-date"><span class="r-date-label"></span><span class="r-ymd"></span><span class="r-hm"></span></div>`;
+        li.querySelector('.r-name').textContent = `${total ? `[${hit}/${total}] ` : ''}${rec.name}`;
+        li.querySelector('.r-fields').append(...fields);
+        if (rec.file) {
+          const d = new Date(rec.file.lastModified);
+          li.querySelector('.r-date-label').textContent = '更新日時';
+          li.querySelector('.r-ymd').textContent = d.toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' });
+          li.querySelector('.r-hm').textContent = d.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        } else {
+          li.querySelector('.r-date').classList.add('r-row');
+          li.querySelector('.r-date-label').textContent = '通し番号（行）';
+          li.querySelector('.r-ymd').textContent = rec.row;
+        }
+        ul.appendChild(li);
+      });
+      resultsDiv.appendChild(ul);
+    }
+  </script>
+</body>
+</html>
