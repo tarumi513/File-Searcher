@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ファイル検索ツール（スプレッドシート対応版）</title>
   <meta name="description" content="フォルダー内のファイル、またはGoogleスプレッドシートのファイル名一覧を、材料・色・納期・取引先コード・通し番号・部位で高速検索するツール" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -36,21 +35,22 @@
       <!-- スプレッドシート取り込み -->
       <div class="drop-zone sheet-pane" id="sheetPane" hidden>
         <div class="sheet-inner">
-          <label class="sheet-label" for="sheetUrl">A. シートのURLを貼り付け</label>
+          <span class="sheet-label">A. CSVファイル（推奨：ファイル → ダウンロード → CSV）</span>
           <div class="sheet-row">
-            <input type="url" id="sheetUrl" placeholder="https://docs.google.com/spreadsheets/d/..." />
-            <button id="urlBtn" class="btn btn-inline" type="button">読込</button>
-          </div>
-
-          <span class="sheet-label">B. CSVファイル（ファイル → ダウンロード → CSV）</span>
-          <div class="sheet-row">
-            <button id="csvBtn" class="btn btn-sub btn-inline" type="button">CSVを選択</button>
-            <span class="sheet-hint">または画面にドラッグ</span>
+            <button id="csvBtn" class="btn btn-inline" type="button">CSVを選択</button>
+            <span class="sheet-hint">または画面にドラッグ（共有設定の変更不要）</span>
             <input type="file" id="csvInput" accept=".csv,.tsv,.txt,text/csv" />
           </div>
 
-          <label class="sheet-label" for="pasteArea">C. コピーした表を貼り付け（Ctrl+A → Ctrl+C → ここで Ctrl+V）</label>
-          <textarea id="pasteArea" rows="2" placeholder="ここをクリックして Ctrl+V"></textarea>
+          <label class="sheet-label" for="pasteArea">B. コピーした表を貼り付け（推奨：Ctrl+A → Ctrl+C → ここで Ctrl+V）</label>
+          <textarea id="pasteArea" rows="2" placeholder="ここをクリックして Ctrl+V（共有設定の変更不要）"></textarea>
+
+          <label class="sheet-label" for="sheetUrl">C. シートのURLを貼り付け（※非推奨：使用後は共有設定を「制限付き」に戻してください）</label>
+          <div class="sheet-row">
+            <input type="url" id="sheetUrl" placeholder="https://docs.google.com/spreadsheets/d/..." />
+            <button id="urlBtn" class="btn btn-sub btn-inline" type="button">読込</button>
+          </div>
+          <span class="sheet-hint">※情報漏洩防止のため「ウェブに公開」は使わず、通常は A または B をご利用ください</span>
 
           <p id="sheetStatus" class="status">未読み込み</p>
           <button id="sheetResetBtn" class="btn btn-sub btn-small" type="button" hidden>読み込みをリセット</button>
@@ -236,7 +236,7 @@
     }
     const guessDelim = (text, name = '') => /\.tsv$/i.test(name) || (/\t/.test(text.split('\n')[0]) && !/,/.test(text.split('\n')[0])) ? '\t' : ',';
 
-    // B. CSVファイル
+    // A. CSVファイル
     async function loadCsvFile(file) {
       sheetStatus.textContent = '読み込み中...';
       if (mode !== 'sheet') setMode('sheet');
@@ -248,7 +248,7 @@
     $('csvBtn').addEventListener('click', () => { csvInput.value = ''; csvInput.click(); });
     csvInput.addEventListener('change', e => { if (e.target.files[0]) loadCsvFile(e.target.files[0]); });
 
-    // C. 貼り付け（Google スプレッドシートのコピーはタブ区切り）
+    // B. 貼り付け（Google スプレッドシートのコピーはタブ区切り）
     $('pasteArea').addEventListener('paste', e => {
       e.preventDefault();
       const text = e.clipboardData.getData('text/plain');
@@ -258,7 +258,7 @@
       loadSheetText(text, '\t', '貼り付け', '　※1行目からコピーしていない場合、行番号がずれます');
     });
 
-    // A. URL（「リンクを知っている全員が閲覧可」または「ウェブに公開」のシートのみ）
+    // C. URL（※非推奨：一時的に共有設定を変更した場合のみ使用し、使用後は元に戻す運用）
     async function loadFromUrl() {
       const url = $('sheetUrl').value.trim();
       if (!url) { sheetStatus.textContent = 'URLを入力してください'; return; }
@@ -281,7 +281,7 @@
           return;
         } catch { /* 次の方法を試す */ }
       }
-      sheetStatus.innerHTML = 'URLから読み込めませんでした（社内限定共有のシートは直接読めません）。<br><b>B（CSV）</b>または<b>C（貼り付け）</b>をご利用ください。';
+      sheetStatus.innerHTML = 'URLから読み込めませんでした（社内限定共有のシートは直接読めません）。<br>推奨の <b>A（CSV）</b>または <b>B（貼り付け）</b>をご利用ください。';
     }
     $('urlBtn').addEventListener('click', loadFromUrl);
     $('sheetUrl').addEventListener('keydown', e => { if (e.key === 'Enter') loadFromUrl(); });

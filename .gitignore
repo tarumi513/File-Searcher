@@ -1,1 +1,7 @@
-﻿.vscode/
+.vscode/
+.env
+*.csv
+*.stl
+*.xlsx
+sample_data/
+__pycache__/
